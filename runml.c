@@ -8,6 +8,8 @@
 #define COMMENT_CHAR "#"
 #define LINESIZE 1024
 
+void removeNewLineCharacter(char*);
+
 enum LineAction {
 	ASSIGNMENT = 1,
 	FUNCTION_DEFINITION = 2,
@@ -76,8 +78,11 @@ int main(int argc, char* argv[]) {
 		char* current_line = line_buffer;
 
 		// Condition to skip blank lines and comments
-		if(current_line[0] == '\n' || current_line[0] == '#')
-			continue;
+		if(current_line[0] == '\n' || current_line[0] == '#') continue;
+
+        
+        // Remove newline character as it is irrelevant for parsing the line
+        removeNewLineCharacter(current_line);
 
         // strtok() replaces the first occurrence a '#' with '\0'. We do this to ignore comments in the ML file
         strtok(current_line, COMMENT_CHAR); 
@@ -86,9 +91,21 @@ int main(int argc, char* argv[]) {
 		line_pointer++;
 
         printf("%d %s",line_pointer, current_line);
+        printf("\n");
     }
 
     free(line_buffer);
     fclose(source_file);
     fclose(c_builder);
+}
+
+void removeNewLineCharacter(char* token) {
+    char* temp = token;
+    while(*temp != '\0') {
+        if(*temp == '\n') {
+            *temp = '\0';
+            break;
+        }
+        temp++;
+    }
 }
