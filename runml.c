@@ -8,11 +8,15 @@
 #define COMMENT_CHAR "#"
 #define ACTION enum Action
 #define SCOPE enum Scope
-#define LINESIZE 1024
 
 void removeNewLineCharacter(char*);
 void parseExpression(char*, FILE*);
 void declareCommandLineArgs(float*, FILE*, int);
+void removeSpaces(char*);
+void rtrim(char*);
+bool isValidIdentifier_variable(char*);
+bool isValidIdentifier_function(char*);
+bool isFunction(char*);
 
 // Action enumerator is used to handle a switch-case by identifying the type of an instruction
 ACTION {
@@ -92,7 +96,7 @@ int main(int argc, char* argv[]) {
     //SCOPE instruction = GLOBAL; // The scope of an instruction is set to global by default
 
     // Read each line from ml file
-    while((line_buffer = fgets(line_buffer, LINESIZE, source_file)) != NULL) {
+    while((line_buffer = fgets(line_buffer, BUFSIZ, source_file)) != NULL) {
 
 		char* current_line = line_buffer;
 
@@ -126,13 +130,11 @@ int main(int argc, char* argv[]) {
             default: 
                 break;
         }
-
-
-
         printf("%d %s",line_pointer, current_line);
         printf("\n");
     }
-
+    
+    // Cleaning up
     free(line_buffer);
     fclose(header);
     fclose(source_file);
@@ -151,7 +153,15 @@ void removeNewLineCharacter(char* token) {
 }
 
 void parseExpression(char* expr, FILE* to_write) {
+
     char variable[13]; // Used to store the identifier used in the LHS of the expression (result variable)
+    strcpy(variable, strtok(expr, "<-"));
+    printf("\n%s\n",expr);
+    if(!isValidIdentifier_variable(variable) && !isFunction(variable)) {
+        fprintf(stderr, "! Illegal naming/use of identifier: %s\n", variable);
+        exit(EXIT_FAILURE);
+    }
+
 
 }
 
@@ -179,3 +189,26 @@ void removeSpaces(char* text) {
 	}
 	*temp = '\0';
 }
+
+bool isValidIdentifier_variable(char* identifier) {
+    int i = 1;
+    rtrim(identifier);
+    if(isdigit(identifier[0]) && !isalpha(identifier[0])) return false;
+    while(identifier[i] != '\0') {
+        if(isspace(identifier[i]) || !isalnum(identifier[i])) return false;
+        i++;
+    }
+    return true;
+}
+
+// This function removes trailing whitespace character(s) in a text
+void rtrim(char* text) {
+    int index = -1, i = 0;
+    while(text[i] != '\0') {
+        if(isdigit(text[i]) || isalpha(text[i])) index = i;
+        i++;
+    }
+    text[++index] = '\0';
+}
+
+bool isFunction(char* token) {}
