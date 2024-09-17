@@ -10,13 +10,19 @@
 #define SCOPE enum Scope
 
 void removeNewLineCharacter(char*);
-void parseExpression(char*, FILE*);
+void parseExpression(const char*, FILE*);
 void declareCommandLineArgs(float*, FILE*, int);
 void removeSpaces(char*);
 void rtrim(char*);
+void createNewVariable(char*, FILE*);
+void translateExpression(char*, char*);
+void declareVariables(char*, FILE*);
 bool isValidIdentifier_variable(char*);
 bool isValidIdentifier_function(char*);
 bool isFunction(char*);
+bool variableExists(char*);
+bool isRealNumber(char*);
+int varptr = -1;
 
 // Action enumerator is used to handle a switch-case by identifying the type of an instruction
 ACTION {
@@ -81,8 +87,6 @@ int main(int argc, char* argv[]) {
         declareCommandLineArgs(command_line_args, header, n_args);
     }
 
-    
-
 	fprintf(c_builder,"#include <stdio.h>\n#include \"global.h\"\n");
 	fprintf(c_builder,"void body() {\n");
 
@@ -93,7 +97,7 @@ int main(int argc, char* argv[]) {
 
     char *line_buffer = (char*) malloc(sizeof(char));
 
-    //SCOPE instruction = GLOBAL; // The scope of an instruction is set to global by default
+    SCOPE instruction = GLOBAL; // The scope of an instruction is set to global by default
 
     // Read each line from ml file
     while((line_buffer = fgets(line_buffer, BUFSIZ, source_file)) != NULL) {
@@ -115,8 +119,8 @@ int main(int argc, char* argv[]) {
         ACTION statement_type;
 
         if(strstr(current_line,"function")) statement_type = FUNCTION_DEFINITION;
-        else if(strstr(current_line,"return")) statement_type = RETURN;
         else if(strstr(current_line,"<-")) statement_type = ASSIGNMENT;
+        else if(strstr(current_line,"return")) statement_type = RETURN;
         else if(strstr(current_line,"print")) statement_type = PRINT;
         else {
             fprintf(stderr, "! Invalid line");
@@ -124,13 +128,23 @@ int main(int argc, char* argv[]) {
         }
 
         switch(statement_type) {
+
             case ASSIGNMENT:
                 parseExpression(current_line, c_builder);
                 break;
+            
+            case FUNCTION_DEFINITION:
+                if(instruction != GLOBAL) {
+                    fprintf(stderr, "! Unsupported function definition inside a function");
+                    exit(EXIT_FAILURE);
+                    instruction = LOCAL;
+                }
+                break;
+
             default: 
                 break;
         }
-        printf("%d %s",line_pointer, current_line);
+        printf("%d %s |%d",line_pointer, current_line, instruction);
         printf("\n");
     }
     
@@ -152,17 +166,95 @@ void removeNewLineCharacter(char* token) {
     }
 }
 
-void parseExpression(char* expr, FILE* to_write) {
-
+void parseExpression(const char* expr, FILE* c_file) {
     char variable[13]; // Used to store the identifier used in the LHS of the expression (result variable)
-    strcpy(variable, strtok(expr, "<-"));
-    printf("\n%s\n",expr);
+    char expression[BUFSIZ];
+    char translatedExpression[BUFSIZ]; 
+    char BUFFER[BUFSIZ];
+    char delim[] = "+*-/";  // Valid arithmetic operators used as delimiters in an expression
+
+    strcpy(expression, expr);   // Copying the contents of the entire line to a temporary buffer for parsing
+
+    // Move the RHS pointer from the beginning of the line to the right-hand side of the assignment operator
+    char* rhs = strstr(expression,"-"); 
+    rhs++;
+
+    strcpy(variable, strtok(expression, "<-")); // Extract the l-value for validation
+
+    printf("\n? %s\n",variable); // ? DEBUG
+
+    // Validating the use of an identifier in accordance to the naming convention
     if(!isValidIdentifier_variable(variable) && !isFunction(variable)) {
         fprintf(stderr, "! Illegal naming/use of identifier: %s\n", variable);
         exit(EXIT_FAILURE);
     }
 
+    if(!variableExists(variable)) { 
+        createNewVariable(variable, c_file);
+        sprintf(BUFFER, "%s_=", variable);
+    }
+    else sprintf(BUFFER, "%s_=",variable); // Else block executes when l-value has been declared
 
+    removeSpaces(rhs);  // Remove any white-space in the expression as white-spaces are insignificant
+    
+    char* handler = strdup(rhs); // Copy the translated expression to a temporary char pointer. The memory is dynamically allocated to handler
+
+    char* token = strtok(handler, delim);
+    
+    if(token != NULL) {
+        while(token) {
+            declareVariables(token, c_file);
+            token = strtok(NULL, delim);
+        }
+        translateExpression(rhs, translatedExpression); // Appends and '_' character to valid identifiers
+        strcat(BUFFER, translatedExpression);
+    }
+    else {
+        // This block executes for direct assignment statement. (expression has no operators)
+        // Check if RHS has an l-value or real number
+        if(isdigit(rhs[0])) strcat(BUFFER, rhs);
+        else {
+            char output[512];
+            translateExpression(rhs, output);
+            strcat(BUFFER, output);
+        }
+    }
+
+    fprintf(c_file,"%s;\n", BUFFER);
+
+
+    free(handler);
+}
+
+void translateExpression(char* input, char* output) {
+
+    int ptr = 0;
+    output[ptr++] = *input;
+
+    input++;
+	if(*input == '\0') {	
+		isalpha(*(input - 1)) ? output[ptr++] = '_': 0;
+		output[ptr] = '\0';
+		return;
+	}
+	else {
+    	while(*input != '\0') {
+        	if(!isalpha(*input) && isalpha(*(input -1))) {
+            	output[ptr++] = '_';
+            	output[ptr++] = *input;
+            	input++;
+            	continue;
+        	}
+        	output[ptr++] = *input;
+        	input++;
+    	}
+	}
+
+	if(isalpha(*(input-1)))
+		output[ptr++] = '_';
+
+	output[ptr] = '\0';
+	removeSpaces(output);
 }
 
 void declareCommandLineArgs(float* arr, FILE* header, int n) { }
@@ -191,12 +283,22 @@ void removeSpaces(char* text) {
 }
 
 bool isValidIdentifier_variable(char* identifier) {
+    
+    int n_keywords = 3;
+    char keywords[4][10] = {"function", "return", "print"};
     int i = 1;
     rtrim(identifier);
+
+    // Checking if the identifier comprises of valid characters
     if(isdigit(identifier[0]) && !isalpha(identifier[0])) return false;
     while(identifier[i] != '\0') {
         if(isspace(identifier[i]) || !isalnum(identifier[i])) return false;
         i++;
+    }
+
+    // Checking if any keywords of ML is used as an identifier
+    for(int i = 0; i < n_keywords; i++) {
+        if(!strcmp(keywords[i], identifier)) return false;
     }
     return true;
 }
@@ -211,4 +313,66 @@ void rtrim(char* text) {
     text[++index] = '\0';
 }
 
-bool isFunction(char* token) {}
+void createNewVariable(char* id, FILE* c_file) {
+    char variable[13];
+    strcpy(variable,id);
+    strcat(variable, "_");
+    strcpy(vars[++varptr].name, variable);
+    vars[varptr].isFunction = false;
+    fprintf(c_file, "float %s = 0;\n", variable);
+}
+
+bool variableExists(char* id) {
+    char variable[13];
+    strcpy(variable,id);
+    strcat(variable, "_");
+	for(int i = 0; i <= varptr; i++) {
+		if(strcmp(vars[i].name, variable) == 0 && !vars[i].isFunction)
+			return true;
+    }
+	return false;	
+}
+
+void declareVariables(char* token, FILE* c_file) {
+	int char_ptr = 0;
+	char term_buffer[50];
+
+	while(*token!='\0') {
+		if(*token == '(' || *token == ')' || *token == ';') {
+			token++;
+			continue;
+		}
+		term_buffer[char_ptr++] = *token;
+		token++;
+	}
+
+	term_buffer[char_ptr] = '\0';
+
+	if(isRealNumber(term_buffer))
+		return;
+
+	if(isalpha(term_buffer[0])) {
+		//strcat(term_buffer,"_");
+		if(!variableExists(term_buffer)) {
+			createNewVariable(term_buffer, c_file);
+		}
+	}
+}
+
+bool isRealNumber(char* token) {
+    char* temp = token;
+	while(*temp != '\0' && *temp != '\n') {
+		if(*temp == '.') {
+			temp++;
+			continue;
+		}
+		else if(isdigit(*temp)) {
+			temp++;
+			continue;
+		}
+		else return false;
+	}
+	return true;
+}
+
+bool isFunction(char* token) {return false;}
