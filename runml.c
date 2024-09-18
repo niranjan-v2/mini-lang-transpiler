@@ -10,13 +10,14 @@
 #define SCOPE enum Scope
 
 void removeNewLineCharacter(char*);
-void parseExpression(const char*, FILE*);
+void parseExpression(const char*, FILE*, FILE*);
 void declareCommandLineArgs(float*, FILE*, int);
 void removeSpaces(char*);
 void rtrim(char*);
 void createNewVariable(char*, FILE*);
 void translateExpression(char*, char*);
-void declareVariables(char*, FILE*);
+void declareVariables(char*, FILE*, FILE*);
+void defineFunction(char*, FILE*);
 bool isValidIdentifier_variable(char*);
 bool isValidIdentifier_function(char*);
 bool isFunction(char*);
@@ -78,8 +79,9 @@ int main(int argc, char* argv[]) {
 	sprintf(c_file,"ml-%d.c",getpid());
 
 	FILE* source_file = fopen(file_name, "r");	// Open the input file
-	FILE* c_builder = fopen(c_file, "w");		// Open the output C file to write translated C code
+	FILE* global = fopen(c_file, "w");		// Open the output C file to write translated C code
     FILE* header = fopen("global.h", "w");      // Create a header to declare functions and command-line arguments (if any)
+    FILE* function = fopen("functions.c", "w");    // Handling functions in a separate file to isolate local and global variables
 
     // Condition block executes when command-line arguments are provided. 
     if(argc > 2) {
@@ -87,8 +89,10 @@ int main(int argc, char* argv[]) {
         declareCommandLineArgs(command_line_args, header, n_args);
     }
 
-	fprintf(c_builder,"#include <stdio.h>\n#include \"global.h\"\n");
-	fprintf(c_builder,"void body() {\n");
+	fprintf(global,"#include <stdio.h>\n#include \"global.h\"\n#include \"functions.c\"");
+	fprintf(global,"void body() {\n");
+
+    fprintf(function, "#include <stdio.h>\n");
 
     if(source_file == NULL) {
 		fprintf(stderr,"! File not found / Unable to open file\n");
@@ -98,11 +102,15 @@ int main(int argc, char* argv[]) {
     char *line_buffer = (char*) malloc(sizeof(char));
 
     SCOPE instruction = GLOBAL; // The scope of an instruction is set to global by default
+    //bool scopeTransition = false;
 
     // Read each line from ml file
     while((line_buffer = fgets(line_buffer, BUFSIZ, source_file)) != NULL) {
 
 		char* current_line = line_buffer;
+
+		// Increase the line pointer for every iteration to keep track of line number. 
+		line_pointer++;
 
 		// Condition to skip blank lines and comments
 		if(current_line[0] == '\n' || current_line[0] == '#') continue;
@@ -112,9 +120,31 @@ int main(int argc, char* argv[]) {
 
         // strtok() replaces the first occurrence a '#' with '\0'. We do this to ignore comments in the ML file
         strtok(current_line, COMMENT_CHAR); 
+        
+        void *filePtr;
 
-		// Increase the line pointer for every iteration to keep track of line number. 
-		line_pointer++;
+        if(!isspace(current_line[0])) {
+            if(instruction == GLOBAL) {
+                filePtr = global;
+            }
+            else {
+                /* Functionality to close brace in functions.c, revert instruction type to global
+                   and assign filePtr to global
+                */
+               fprintf(function, "}\n");
+               instruction = GLOBAL;
+               filePtr = global;
+            }
+        }
+        else if(current_line[0] == '\t') {
+            if(instruction == LOCAL) {
+                filePtr = function;                
+            }
+            else {
+                fprintf(stderr, "! Unexpected indent at Line: %d\n", line_pointer);
+                exit(EXIT_FAILURE);
+            }
+        }
 
         ACTION statement_type;
 
@@ -123,22 +153,25 @@ int main(int argc, char* argv[]) {
         else if(strstr(current_line,"return")) statement_type = RETURN;
         else if(strstr(current_line,"print")) statement_type = PRINT;
         else {
-            fprintf(stderr, "! Invalid line");
+            fprintf(stderr, "! Invalid statement");
             exit(EXIT_FAILURE);
         }
 
         switch(statement_type) {
 
             case ASSIGNMENT:
-                parseExpression(current_line, c_builder);
+                parseExpression(current_line, filePtr, header);
                 break;
             
             case FUNCTION_DEFINITION:
                 if(instruction != GLOBAL) {
                     fprintf(stderr, "! Unsupported function definition inside a function");
                     exit(EXIT_FAILURE);
-                    instruction = LOCAL;
                 }
+
+                instruction = LOCAL;
+                defineFunction(current_line, function);
+
                 break;
 
             default: 
@@ -152,7 +185,8 @@ int main(int argc, char* argv[]) {
     free(line_buffer);
     fclose(header);
     fclose(source_file);
-    fclose(c_builder);
+    fclose(global);
+    fclose(function);
 }
 
 void removeNewLineCharacter(char* token) {
@@ -166,7 +200,7 @@ void removeNewLineCharacter(char* token) {
     }
 }
 
-void parseExpression(const char* expr, FILE* c_file) {
+void parseExpression(const char* expr, FILE* c_file, FILE* header) {
     char variable[13]; // Used to store the identifier used in the LHS of the expression (result variable)
     char expression[BUFSIZ];
     char translatedExpression[BUFSIZ]; 
@@ -190,7 +224,7 @@ void parseExpression(const char* expr, FILE* c_file) {
     }
 
     if(!variableExists(variable)) { 
-        createNewVariable(variable, c_file);
+        createNewVariable(variable, header);
         sprintf(BUFFER, "%s_=", variable);
     }
     else sprintf(BUFFER, "%s_=",variable); // Else block executes when l-value has been declared
@@ -203,7 +237,7 @@ void parseExpression(const char* expr, FILE* c_file) {
     
     if(token != NULL) {
         while(token) {
-            declareVariables(token, c_file);
+            declareVariables(token, c_file, header);
             token = strtok(NULL, delim);
         }
         translateExpression(rhs, translatedExpression); // Appends and '_' character to valid identifiers
@@ -285,7 +319,7 @@ void removeSpaces(char* text) {
 bool isValidIdentifier_variable(char* identifier) {
     
     int n_keywords = 3;
-    char keywords[4][10] = {"function", "return", "print"};
+    char keywords[3][10] = {"function", "return", "print"};
     int i = 1;
     rtrim(identifier);
 
@@ -333,7 +367,7 @@ bool variableExists(char* id) {
 	return false;	
 }
 
-void declareVariables(char* token, FILE* c_file) {
+void declareVariables(char* token, FILE* c_file, FILE* header) {
 	int char_ptr = 0;
 	char term_buffer[50];
 
@@ -348,13 +382,13 @@ void declareVariables(char* token, FILE* c_file) {
 
 	term_buffer[char_ptr] = '\0';
 
-	if(isRealNumber(term_buffer))
+	// Exit the function if the term is a real number as it is not needed to declare real numbers. Duh!
+    if(isRealNumber(term_buffer))
 		return;
 
 	if(isalpha(term_buffer[0])) {
-		//strcat(term_buffer,"_");
 		if(!variableExists(term_buffer)) {
-			createNewVariable(term_buffer, c_file);
+			createNewVariable(term_buffer, header);
 		}
 	}
 }
@@ -373,6 +407,36 @@ bool isRealNumber(char* token) {
 		else return false;
 	}
 	return true;
+}
+
+void defineFunction(char* statement, FILE* c_file) {
+    char current_line[BUFSIZ];
+    strcpy(current_line, statement);
+
+    char* token = strtok(current_line, " "); // Assuming that a function definition is space separated
+
+    token = strtok(NULL, " "); // Extract the name of the function
+
+    fprintf(c_file, "float %s(", token); // Define the function with the function name in the file
+
+    token = strtok(NULL, " "); // Move to the next token (params)
+
+    fprintf(c_file, "float %s_", token);
+
+    token = strtok(NULL, " ");
+
+    while(token) {
+
+        if(!isValidIdentifier_variable(token)) {
+            fprintf(stderr, "! Illegal naming/use of identifier: %s\n", token);
+            exit(EXIT_FAILURE);
+        }
+
+        printf("@@%s@@\n", token);
+        fprintf(c_file, ",float %s_", token);
+        token = strtok(NULL, " "); // Move to the next parameter (if any)
+    }
+    fprintf(c_file, "){\n");
 }
 
 bool isFunction(char* token) {return false;}
