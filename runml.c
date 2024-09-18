@@ -15,13 +15,14 @@ void declareCommandLineArgs(float*, FILE*, int);
 void removeSpaces(char*);
 void rtrim(char*);
 void createNewVariable(char*, FILE*);
+void createNewFunction(char*);
 void translateExpression(char*, char*);
 void declareVariables(char*, FILE*, FILE*);
 void defineFunction(char*, FILE*);
 bool isValidIdentifier_variable(char*);
 bool isValidIdentifier_function(char*);
-bool isFunction(char*);
 bool variableExists(char*);
+bool functionExists(char*);
 bool isRealNumber(char*);
 int varptr = -1;
 
@@ -78,9 +79,9 @@ int main(int argc, char* argv[]) {
     // Construct the filename for the C file to be generated in the form ml-<pid>.c
 	sprintf(c_file,"ml-%d.c",getpid());
 
-	FILE* source_file = fopen(file_name, "r");	// Open the input file
-	FILE* global = fopen(c_file, "w");		// Open the output C file to write translated C code
-    FILE* header = fopen("global.h", "w");      // Create a header to declare functions and command-line arguments (if any)
+	FILE* source_file = fopen(file_name, "r");	   // Open the input file
+	FILE* global = fopen(c_file, "w");		       // Open the output C file to write translated C code
+    FILE* header = fopen("global.h", "w");         // Create a header to declare functions and command-line arguments (if any)
     FILE* function = fopen("functions.c", "w");    // Handling functions in a separate file to isolate local and global variables
 
     // Condition block executes when command-line arguments are provided. 
@@ -102,7 +103,6 @@ int main(int argc, char* argv[]) {
     char *line_buffer = (char*) malloc(sizeof(char));
 
     SCOPE instruction = GLOBAL; // The scope of an instruction is set to global by default
-    //bool scopeTransition = false;
 
     // Read each line from ml file
     while((line_buffer = fgets(line_buffer, BUFSIZ, source_file)) != NULL) {
@@ -171,7 +171,6 @@ int main(int argc, char* argv[]) {
 
                 instruction = LOCAL;
                 defineFunction(current_line, function);
-
                 break;
 
             default: 
@@ -218,7 +217,7 @@ void parseExpression(const char* expr, FILE* c_file, FILE* header) {
     printf("\n? %s\n",variable); // ? DEBUG
 
     // Validating the use of an identifier in accordance to the naming convention
-    if(!isValidIdentifier_variable(variable) && !isFunction(variable)) {
+    if(!isValidIdentifier_variable(variable) && !functionExists(variable)) {
         fprintf(stderr, "! Illegal naming/use of identifier: %s\n", variable);
         exit(EXIT_FAILURE);
     }
@@ -417,7 +416,18 @@ void defineFunction(char* statement, FILE* c_file) {
 
     token = strtok(NULL, " "); // Extract the name of the function
 
-    fprintf(c_file, "float %s(", token); // Define the function with the function name in the file
+    if(!isValidIdentifier_function(token)) {
+        fprintf(stderr, "! Illegal naming/use of identifier: %s\n", token);
+        exit(EXIT_FAILURE);
+    }
+
+    if(functionExists(token)) {
+        fprintf(stderr, "! Error: Redefinition of function %s", token);
+        exit(EXIT_FAILURE);
+    }
+
+
+    fprintf(c_file, "float %s_(", token); // Define the function with the function name in the file
 
     token = strtok(NULL, " "); // Move to the next token (params)
 
@@ -439,4 +449,35 @@ void defineFunction(char* statement, FILE* c_file) {
     fprintf(c_file, "){\n");
 }
 
-bool isFunction(char* token) {return false;}
+void createNewFunction(char* id) {
+    char variable[13];
+    strcpy(variable,id);
+    strcat(variable, "_");
+    strcpy(vars[++varptr].name, variable);
+    vars[varptr].isFunction = true;
+}
+
+bool isValidIdentifier_function(char* identifier) {
+
+    int i = 1;
+
+    // Checking if the function name comprises of valid characters
+    if(isdigit(identifier[0]) || (!isalpha(identifier[0]) || identifier[0] != '_')) 
+        return false;
+    while(identifier[i] != '\0') {
+        if(!isalnum(identifier[i])) return false;
+        i++;
+    }
+    return true;
+}
+
+bool functionExists(char* token) {
+    char variable[13];
+    strcpy(variable,token);
+    strcat(variable, "_");
+	for(int i = 0; i <= varptr; i++) {
+		if(strcmp(vars[i].name, variable) == 0 && vars[i].isFunction) 
+            return true;
+    }
+	return false;
+}
