@@ -19,13 +19,16 @@ void createNewFunction(char*);
 void translateExpression(char*, char*);
 void declareVariables(char*, FILE*, FILE*);
 void defineFunction(char*, FILE*);
+void returnExpression(char*, FILE*);
 void printExpression(char*, FILE*);
 bool isValidIdentifier_variable(char*);
 bool isValidIdentifier_function(char*);
 bool variableExists(char*);
 bool functionExists(char*);
 bool isRealNumber(char*);
+
 int varptr = -1;
+bool returnsValue = false;  // This variable tracks the occurrence of a return statement in a function
 
 // Action enumerator is used to handle a switch-case by identifying the type of an instruction
 ACTION {
@@ -33,7 +36,7 @@ ACTION {
 	FUNCTION_DEFINITION = 2,
 	RETURN = 3,
 	PRINT = 4,
-	FUNCTION_CALL = 5,
+	FUNCTION_CALL = 5
 };
 
 // Scope enumerator is used to track if an instruction is either local to a function or global
@@ -137,7 +140,12 @@ int main(int argc, char* argv[]) {
                 /* Functionality to close brace in functions.c, revert instruction type to global
                    and assign filePtr to global
                 */
-               fprintf(function, "}\n");
+                if(returnsValue) {
+                    fprintf(function, "}\n");
+                    returnsValue = false;
+                }
+                else 
+                    fprintf(function, "return 0.0f;\n}");
                instruction = GLOBAL;
                filePtr = global;
             }
@@ -156,7 +164,7 @@ int main(int argc, char* argv[]) {
 
         if(strstr(current_line,"function")) statement_type = FUNCTION_DEFINITION;
         else if(strstr(current_line,"<-")) statement_type = ASSIGNMENT;
-        else if(strstr(current_line,"return")) statement_type = RETURN;
+        else if(strstr(current_line,"return ")) statement_type = RETURN;
         else if(strstr(current_line,"print ")) statement_type = PRINT;
         else if(strstr(current_line,"(")) statement_type = FUNCTION_CALL;
         else {
@@ -191,17 +199,29 @@ int main(int argc, char* argv[]) {
 
             case FUNCTION_CALL:
             {
-                char buffer[512];
-                translateExpression(current_line, buffer);
-                fprintf(filePtr, "%s;\n", buffer);
+                char func_call[512];
+                translateExpression(current_line, func_call);
+                fprintf(filePtr, "%s;\n", func_call);
                 break;
             }
 
+            case RETURN:
+            {
+                if(instruction != LOCAL) {
+                    fprintf(stderr, "! Error: Use of 'return' outside function at Line: %d", line_pointer);
+                    exit(EXIT_FAILURE);
+                }
+                // TODO: handle a function having multiple return statements
+                returnsValue = true;
+                returnExpression(current_line, filePtr);
+            }
+
             default: 
+            {
+                fprintf(stderr, "! Undefined statement at Line: %d", line_pointer);
                 break;
+            }
         }
-        //printf("%d %s |%d",line_pointer, current_line, instruction);
-        //printf("\n");
     }
 
     fprintf(global, "}\nint main(void)\n{\nbody();\n}");
@@ -324,7 +344,7 @@ void translateExpression(char* input, char* output) {
 	removeSpaces(output);
 }
 
-void declareCommandLineArgs(float* arr, FILE* header, int n) { }
+void declareCommandLineArgs(float* arr, FILE* header, int n) { } //TODO
 
 // This function removes all whitespace characters in a text and transforms into a continuous stream of characters
 void removeSpaces(char* text) {
@@ -518,16 +538,39 @@ bool functionExists(char* token) {
 
 void printExpression(char* exp, FILE* c_file) {
 
-    printf("@@@%s@@@\n",exp);
-    exp++;
+    char current_line[100];
+    
+    if(*exp == '\t')
+        exp++;
+
+    strcpy(current_line, exp);
+    
+    
     char cleanedExpression[512];
     char print_statement[100];
-    // Extract the expression from the print statement by using delim as 'print'
-    char* expression  = strtok(exp, "print");
+
+    // Extract the expression from the print statement by using delim as a whitespace
+    char* expression  = strstr(current_line, " ");
+    expression++;
 
     translateExpression(expression, cleanedExpression);
     removeSpaces(cleanedExpression);
     fprintf(c_file, "result = %s;\n", cleanedExpression);
-    strcpy(print_statement, "result - (int) result != 0 ? printf(\"%.6f\", result) : printf(\"%d\", (int) result);\n");
+    strcpy(print_statement, "result - (int) result != 0 ? printf(\"%.6f\\n\", result) : printf(\"%d\\n\", (int) result);\n");
     fprintf(c_file, "%s", print_statement);
+}
+
+void returnExpression(char* statement, FILE* c_file) {
+    
+    char current_line[BUFSIZ];
+    
+    if(*statement == '\t')
+        statement++;
+    
+    strcpy(current_line, statement);
+    char return_statement[512];
+    char* expression = strstr(current_line, " ");
+    expression++;
+    translateExpression(expression, return_statement);
+    fprintf(c_file, "return %s;\n", return_statement);
 }
