@@ -91,6 +91,13 @@ int main(int argc, char* argv[]) {
     // Condition block executes when command-line arguments are provided. 
     if(argc > 2) {
         n_args = argc - 2;
+        printf("argc = %d argv = %d\n", argc, n_args);
+
+        for(int i = 2; i < n_args + 2; i++) 
+            command_line_args[i-2] = atof(argv[i]);
+        
+        //for(int i = 0; i < n_args; i++) 
+          //  printf("%f ", command_line_args[i]);
         declareCommandLineArgs(command_line_args, header, n_args);
     }
 
@@ -215,10 +222,8 @@ int main(int argc, char* argv[]) {
                 returnsValue = true;
                 returnExpression(current_line, filePtr);
             }
-
             default: 
             {
-                fprintf(stderr, "! Undefined statement at Line: %d", line_pointer);
                 break;
             }
         }
@@ -239,7 +244,6 @@ int main(int argc, char* argv[]) {
 	system(compile_command);
 	system("./ml");
 	system("rm ml");
-
     exit(EXIT_SUCCESS);
 }
 
@@ -344,7 +348,11 @@ void translateExpression(char* input, char* output) {
 	removeSpaces(output);
 }
 
-void declareCommandLineArgs(float* arr, FILE* header, int n) { } //TODO
+void declareCommandLineArgs(float* arr, FILE* header, int n) { 
+    for(int i = 0; i < n; i++) {
+        fprintf(header, "float arg%d = %f;\n", i, arr[i]);
+    }
+} //TODO
 
 // This function removes all whitespace characters in a text and transforms into a continuous stream of characters
 void removeSpaces(char* text) {
@@ -549,7 +557,7 @@ void printExpression(char* exp, FILE* c_file) {
     char cleanedExpression[512];
     char print_statement[100];
 
-    // Extract the expression from the print statement by using delim as a whitespace
+    // Move the pointer to skip the 'print' keyword 
     char* expression  = strstr(current_line, " ");
     expression++;
 
@@ -569,8 +577,11 @@ void returnExpression(char* statement, FILE* c_file) {
     
     strcpy(current_line, statement);
     char return_statement[512];
+
+    // Move the pointer to skip the 'return' keyword 
     char* expression = strstr(current_line, " ");
     expression++;
+
     translateExpression(expression, return_statement);
     fprintf(c_file, "return %s;\n", return_statement);
 }
