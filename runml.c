@@ -91,13 +91,8 @@ int main(int argc, char* argv[]) {
     // Condition block executes when command-line arguments are provided. 
     if(argc > 2) {
         n_args = argc - 2;
-        printf("argc = %d argv = %d\n", argc, n_args);
-
         for(int i = 2; i < n_args + 2; i++) 
             command_line_args[i-2] = atof(argv[i]);
-        
-        //for(int i = 0; i < n_args; i++) 
-          //  printf("%f ", command_line_args[i]);
         declareCommandLineArgs(command_line_args, header, n_args);
     }
 
@@ -218,7 +213,6 @@ int main(int argc, char* argv[]) {
                     fprintf(stderr, "! Error: Use of 'return' outside function at Line: %d", line_pointer);
                     exit(EXIT_FAILURE);
                 }
-                // TODO: handle a function having multiple return statements
                 returnsValue = true;
                 returnExpression(current_line, filePtr);
             }
@@ -238,12 +232,14 @@ int main(int argc, char* argv[]) {
     fclose(global);
     fclose(function);
 
-    char compile_command[30];
-	sprintf(compile_command,"gcc -o ml %s",c_file);
-
-	system(compile_command);
-	system("./ml");
-	system("rm ml");
+    char compile_command[50];
+    char remove_files[50];
+    
+	sprintf(compile_command,"gcc -o ml %s && ./ml",c_file);
+    sprintf(remove_files, "rm ml* f* g*");
+	
+    system(compile_command);
+	system(remove_files);
     exit(EXIT_SUCCESS);
 }
 
@@ -289,7 +285,7 @@ void parseExpression(const char* expr, FILE* c_file, FILE* header) {
 
     removeSpaces(rhs);  // Remove any white-space in the expression as white-spaces are insignificant
     
-    char* handler = strdup(rhs); // Copy the translated expression to a temporary char pointer. The memory is dynamically allocated to handler
+    char* handler = strdup(rhs); // Copy txhe translated expression to a temporary char pointer. The memory is dynamically allocated to handler
 
     char* token = strtok(handler, delim);
     
@@ -350,9 +346,13 @@ void translateExpression(char* input, char* output) {
 
 void declareCommandLineArgs(float* arr, FILE* header, int n) { 
     for(int i = 0; i < n; i++) {
-        fprintf(header, "float arg%d = %f;\n", i, arr[i]);
+        char arg[6];
+        sprintf(arg, "arg_%d", i);
+        fprintf(header, "float %s = %f;\n", arg, arr[i]);
+        strcpy(vars[++varptr].name, arg);
+        vars[varptr].isFunction = false;
     }
-} //TODO
+} 
 
 // This function removes all whitespace characters in a text and transforms into a continuous stream of characters
 void removeSpaces(char* text) {
@@ -446,6 +446,8 @@ void declareVariables(char* token, FILE* c_file, FILE* header) {
 	// Exit the function if the term is a real number as it is not needed to declare real numbers. Duh!
     if(isRealNumber(term_buffer))
 		return;
+    if(strstr(term_buffer, "arg"))
+        return;
 
 	if(isalpha(term_buffer[0])) {
 		if(!variableExists(term_buffer)) {
@@ -563,6 +565,7 @@ void printExpression(char* exp, FILE* c_file) {
 
     translateExpression(expression, cleanedExpression);
     removeSpaces(cleanedExpression);
+
     fprintf(c_file, "result = %s;\n", cleanedExpression);
     strcpy(print_statement, "result - (int) result != 0 ? printf(\"%.6f\\n\", result) : printf(\"%d\\n\", (int) result);\n");
     fprintf(c_file, "%s", print_statement);
