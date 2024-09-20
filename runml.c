@@ -17,7 +17,7 @@ void rtrim(char*);
 void createNewVariable(char*, FILE*);
 void createNewFunction(char*);
 void translateExpression(char*, char*);
-void declareVariables(char*, FILE*, FILE*);
+void declareVariables(char*, FILE*);
 void defineFunction(char*, FILE*);
 void returnExpression(char*, FILE*);
 void printExpression(char*, FILE*);
@@ -85,8 +85,8 @@ int main(int argc, char* argv[]) {
 
 	FILE* source_file = fopen(file_name, "r");	   // Open the input file
 	FILE* global = fopen(c_file, "w");		       // Open the output C file to write translated C code
-    FILE* header = fopen("global.h", "w");         // Create a header to declare functions and command-line arguments (if any)
-    FILE* function = fopen("functions.c", "w");    // Handling functions in a separate file to isolate local and global variables
+    FILE* header = fopen("global.h", "w");         // Create a header to declare functions and command-line arguments (if any) and global variables
+    FILE* function = fopen("functions.c", "w");    // Handling functions in a separate file to isolate local and global statements
 
     // Condition block executes when command-line arguments are provided. 
     if(argc > 2) {
@@ -96,12 +96,17 @@ int main(int argc, char* argv[]) {
         declareCommandLineArgs(command_line_args, header, n_args);
     }
 
+    // Writing boilerplate code to the files that are created
 	fprintf(global,"#include <stdio.h>\n#include \"global.h\"\n#include \"functions.c\"\n");
 	fprintf(global,"void body() {\n");
 
     fprintf(function, "#include <stdio.h>\n");
 
-    fprintf(header, "float result = 0;\n");
+    /* 'result' is a variable that is used to store the value returned by an expression that is 
+       used in the print statement. Storing the value in 'result' will effectively help determine
+       if the resultant value has a floating point numbers
+    */
+    fprintf(header, "float result = 0;\n"); 
 
     if(source_file == NULL) {
 		fprintf(stderr,"! File not found / Unable to open file\n");
@@ -134,25 +139,36 @@ int main(int argc, char* argv[]) {
         */
         void *filePtr; 
 
+        /* This condition is used to check if the current line starts in the beginning(global scope) 
+           or is indented(local)
+        */
         if(!isspace(current_line[0])) {
             if(instruction == GLOBAL) {
-                filePtr = global;
+                filePtr = global; // Assigning 'filePtr' to the C file handling global statements
             }
             else {
-                /* Functionality to close brace in functions.c, revert instruction type to global
-                   and assign filePtr to global
+                /* Control flow to else block indicates that there is a transition of scope from
+                   local to global space
+                */
+
+                /* This condition tracks if there is a return statement in a function as the scope 
+                   changes. 'returnsValue' gets updated to true if there is a return statement in
+                   the function. In the absence, we explicitly write 'return 0.0f' into the file
                 */
                 if(returnsValue) {
                     fprintf(function, "}\n");
                     returnsValue = false;
                 }
-                else 
+                else {
                     fprintf(function, "return 0.0f;\n}");
-               instruction = GLOBAL;
+                }
+               instruction = GLOBAL; // Updating the scope
                filePtr = global;
             }
         }
+
         else if(current_line[0] == '\t') {
+            // Control flow comes to this block when the line is indented
             if(instruction == LOCAL) {
                 filePtr = function;                
             }
@@ -164,6 +180,7 @@ int main(int argc, char* argv[]) {
 
         ACTION statement_type;
 
+        // Identify the type of the statement based on the standard keywords of ml
         if(strstr(current_line,"function")) statement_type = FUNCTION_DEFINITION;
         else if(strstr(current_line,"<-")) statement_type = ASSIGNMENT;
         else if(strstr(current_line,"return ")) statement_type = RETURN;
@@ -233,13 +250,13 @@ int main(int argc, char* argv[]) {
     fclose(function);
 
     char compile_command[50];
-    char remove_files[50];
-    
+    //char remove_files[50];
+
 	sprintf(compile_command,"gcc -o ml %s && ./ml",c_file);
-    sprintf(remove_files, "rm ml* f* g*");
+    //sprintf(remove_files, "rm ml* f* g*");
 	
     system(compile_command);
-	system(remove_files);
+	//system(remove_files);
     exit(EXIT_SUCCESS);
 }
 
@@ -254,10 +271,14 @@ void removeNewLineCharacter(char* token) {
     }
 }
 
+/* This function handles all the assignment operations by splitting the LHS and RHS of the equation,
+    tokenizing every operand, validates identifiers and declares all the undefined variables before
+    usage.
+*/
 void parseExpression(const char* expr, FILE* c_file, FILE* header) {
     char variable[13]; // Used to store the identifier used in the LHS of the expression (result variable)
     char expression[BUFSIZ];
-    char translatedExpression[BUFSIZ]; 
+    char translatedExpression[BUFSIZ];
     char BUFFER[BUFSIZ];
     char delim[] = "+*-/";  // Valid arithmetic operators used as delimiters in an expression
 
@@ -269,8 +290,6 @@ void parseExpression(const char* expr, FILE* c_file, FILE* header) {
 
     strcpy(variable, strtok(expression, "<-")); // Extract the l-value for validation
 
-    //printf("\n? %s\n",variable); // ? DEBUG
-
     // Validating the use of an identifier in accordance to the naming convention
     if(!isValidIdentifier_variable(variable) && !functionExists(variable)) {
         fprintf(stderr, "! Illegal naming/use of identifier: %s\n", variable);
@@ -278,20 +297,20 @@ void parseExpression(const char* expr, FILE* c_file, FILE* header) {
     }
 
     if(!variableExists(variable)) { 
-        createNewVariable(variable, header);
+        expr[0] != '\t' ? createNewVariable(variable, header) : createNewVariable(variable, c_file);
         sprintf(BUFFER, "%s_=", variable);
     }
     else sprintf(BUFFER, "%s_=",variable); // Else block executes when l-value has been declared
 
     removeSpaces(rhs);  // Remove any white-space in the expression as white-spaces are insignificant
     
-    char* handler = strdup(rhs); // Copy txhe translated expression to a temporary char pointer. The memory is dynamically allocated to handler
+    char* handler = strdup(rhs); // Copy the translated expression to a temporary char pointer. The memory is dynamically allocated to handler
 
     char* token = strtok(handler, delim);
     
     if(token != NULL) {
         while(token) {
-            declareVariables(token, c_file, header);
+            declareVariables(token, c_file);
             token = strtok(NULL, delim);
         }
         translateExpression(rhs, translatedExpression); // Appends and '_' character to valid identifiers
@@ -313,6 +332,11 @@ void parseExpression(const char* expr, FILE* c_file, FILE* header) {
     free(handler);
 }
 
+/* This function looks for all the identifiers used in a given expression and appends them with 
+   an '_' character. This is a part of the standard naming convention of all the identifiers used
+   in the program. It is done to handle the use of any C standard keywords as identifiers in the ml
+   file which will eventually impact the translation.
+*/
 void translateExpression(char* input, char* output) {
 
     int ptr = 0;
@@ -387,7 +411,7 @@ bool isValidIdentifier_variable(char* identifier) {
     // Checking if the identifier comprises of valid characters
     if(isdigit(identifier[0]) && !isalpha(identifier[0])) return false;
     while(identifier[i] != '\0') {
-        if(isspace(identifier[i]) || !isalnum(identifier[i])) return false;
+        if(isspace(identifier[i]) || !isalpha(identifier[i])) return false;
         i++;
     }
 
@@ -428,7 +452,7 @@ bool variableExists(char* id) {
 	return false;	
 }
 
-void declareVariables(char* token, FILE* c_file, FILE* header) {
+void declareVariables(char* token, FILE* c_file) {
 	int char_ptr = 0;
 	char term_buffer[50];
 
@@ -448,12 +472,28 @@ void declareVariables(char* token, FILE* c_file, FILE* header) {
 		return;
     if(strstr(term_buffer, "arg"))
         return;
-
 	if(isalpha(term_buffer[0])) {
+        char* id = strpbrk(term_buffer, "1234567890");
+        if(id) {
+            char params[40];
+            strcpy(params, id);
+            *id = '\0';
+            if(!functionExists(term_buffer)) {
+                fprintf(stderr, "! %s() is not defined\n", term_buffer);
+                exit(EXIT_FAILURE);
+            }
+            else return;
+        }
+
+        if(functionExists(term_buffer)) return;
+
 		if(!variableExists(term_buffer)) {
-			createNewVariable(term_buffer, header);
+			createNewVariable(term_buffer, c_file);
 		}
 	}
+    else {
+
+    }
 }
 
 bool isRealNumber(char* token) {
@@ -490,12 +530,20 @@ void defineFunction(char* statement, FILE* c_file) {
         exit(EXIT_FAILURE);
     }
 
+    createNewFunction(token);
 
     fprintf(c_file, "float %s_(", token); // Define the function with the function name in the file
 
     token = strtok(NULL, " "); // Move to the next token (params)
 
-    fprintf(c_file, "float %s_", token);
+    if(token != NULL) {
+        fprintf(c_file, "float %s_", token);
+        char variable[13];
+        strcpy(variable,token);
+        strcat(variable, "_");
+        strcpy(vars[++varptr].name, variable);
+        vars[varptr].isFunction = false;
+    }
 
     token = strtok(NULL, " ");
 
@@ -505,8 +553,11 @@ void defineFunction(char* statement, FILE* c_file) {
             fprintf(stderr, "! Illegal naming/use of identifier: %s\n", token);
             exit(EXIT_FAILURE);
         }
-
-        //printf("@@%s@@\n", token);
+        char variable[13];
+        strcpy(variable,token);
+        strcat(variable, "_");
+        strcpy(vars[++varptr].name, variable);
+        vars[varptr].isFunction = false;
         fprintf(c_file, ",float %s_", token);
         token = strtok(NULL, " "); // Move to the next parameter (if any)
     }
@@ -523,13 +574,10 @@ void createNewFunction(char* id) {
 
 bool isValidIdentifier_function(char* identifier) {
 
-    int i = 1;
+    int i = 0;
 
-    // Checking if the function name comprises of valid characters
-    if(isdigit(identifier[0]) || (!isalpha(identifier[0]) || identifier[0] == '_')) 
-        return false;
     while(identifier[i] != '\0') {
-        if(!isalnum(identifier[i])) return false;
+        if(!isalpha(identifier[i])) return false;
         i++;
     }
     return true;
@@ -575,9 +623,9 @@ void returnExpression(char* statement, FILE* c_file) {
     
     char current_line[BUFSIZ];
     
-    if(*statement == '\t')
+    if(*statement == '\t') {
         statement++;
-    
+    }
     strcpy(current_line, statement);
     char return_statement[512];
 
