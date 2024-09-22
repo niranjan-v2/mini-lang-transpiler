@@ -13,6 +13,7 @@ This project introduces **ml**, a simple mini-language, which is transpiled into
 - [ml Language Specification](#ml-language-specification)
 - [Working](#working)
 - [Project Requirements](#project-requirements)
+- [Syntax of ml programs](#syntax-of-ml-programs)
 - [Future Work](#future-work)
 
 ## Introduction
@@ -82,9 +83,13 @@ Example:
 - **Output formatting**:
   - Exact integers are printed without decimal places.
   - Non-integer real numbers are printed with exactly 6 decimal places.
+## Syntax of ml programs
+<img width="823" alt="Screenshot 2024-09-22 at 3 30 08 PM" src="https://github.com/user-attachments/assets/06579449-8a3c-4079-ab6c-b6e90ef97167">
+
 ## Future Work
 Future enhancements could include adding:
 - Conditional statements
 - Loops
 - Additional data types
+
  
