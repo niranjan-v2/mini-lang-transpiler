@@ -48,6 +48,8 @@ To install and run the **runml** program, you need:
    ```bash
    make
    ```
+You can also download the binary from https://www.niranjanv.com/runml
+
 ## Usage
 To run **`runml`**, use the following syntax:
   ```bash
